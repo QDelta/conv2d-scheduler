@@ -9,22 +9,25 @@ from tvm.contrib import util
 # ref: https://tvm.apache.org/docs/tutorials/language/schedule_primitives.html
 #      https://tvm.apache.org/docs/vta/tutorials/optimize/convolution_opt.html
 
-# 这个函数是需要大家自己补充的，是需要调用各种schedule的原语进行优化的
-def schedule_opt(output):
-    s = te.create_schedule(output.op)
-    # just blocking
-    na, oca, ha, wa = s[output].op.axis
-    oc_out, oc_inn = s[output].split(oca, factor = 8)
-    h_out, h_inn = s[output].split(ha, factor = 8)
-    w_out, w_inn = s[output].split(wa, factor = 8)
-    s[output].reorder(na, oc_out, h_out, w_out, oc_inn, h_inn, w_inn)
-    return s
+# def schedule_opt(output):
+#     s = te.create_schedule(output.op)
+#     # just blocking
+#     na, oca, ha, wa = s[output].op.axis
+#     oc_out, oc_inn = s[output].split(oca, factor = 8)
+#     h_out, h_inn = s[output].split(ha, factor = 8)
+#     w_out, w_inn = s[output].split(wa, factor = 8)
+#     s[output].reorder(na, oc_out, h_out, w_out, oc_inn, h_inn, w_inn)
+#     return s
 
-def schedule_default(output):
-    return te.create_schedule(output.op)
+def compute_opt(input, filter, stride, padding, dilation):
+    pass
+
+def compute_default(input, filter, stride, padding, dilation):
+    return conv2d_nchw(input, filter, stride, padding, dilation)
+    # defined in tvm-src/python/build/lib/tvm/topi/nn/conv2d.py
 
 #ic表示input channel，oc表示output channel      
-def test_topi_conv2d(schedule, name):
+def test_topi_conv2d(compute, name):
     # 声明输入输出的大小
     n, ic, ih, iw = 8, 32, 64, 64
     oc, kh, kw = 64, 3, 3
@@ -44,13 +47,14 @@ def test_topi_conv2d(schedule, name):
     B = te.placeholder(shape=(oc, ic, kh, kw), dtype=dtype, name='B')
 
     # 调用conv2d_nchw来进行conv2d的计算。
-    output = conv2d_nchw(Input = A, Filter = B, stride = (stride_h, stride_w), padding = (pad_h, pad_w), dilation = (dilation_h, dilation_w))
+    # output = conv2d_nchw(Input = A, Filter = B, stride = (stride_h, stride_w), padding = (pad_h, pad_w), dilation = (dilation_h, dilation_w))
+    output = compute(A, B, (stride_h, stride_w), (pad_h, pad_w), (dilation_h, dilation_w))
 
     # 这一句是调用tvm默认的schedule函数，表示不加任何优化的schedule
-    # s = te.create_schedule(output.op)
+    s = te.create_schedule(output.op)
 
     # 这里需要大家调用tvm有的原语进行loop循环的优化，大家自己去补充
-    s = schedule(output)
+    # s = schedule(output)
 
     # 编译生成可执行的模块
     func_cpu = tvm.build(s, [A, B, output], target="llvm")
@@ -78,12 +82,12 @@ def test_topi_conv2d(schedule, name):
     eval_time = evaluator(a, b, d_cpu).mean * 1000.0
     print(f'{name} Conv: {eval_time} ms')
     return eval_time
-   
+
 def main():
-    default_time = test_topi_conv2d(schedule_default, 'default')
-    opt_time = test_topi_conv2d(schedule_opt, 'opt')
+    default_time = test_topi_conv2d(compute_default, 'default')
+    opt_time = test_topi_conv2d(compute_opt, 'opt')
     print((default_time - opt_time) / default_time)
-    
+
 if __name__ == '__main__':
     main()
 
